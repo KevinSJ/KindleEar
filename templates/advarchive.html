@@ -101,7 +101,7 @@
 <script type="text/javascript">
     function notifyInstapaperVerify() {
         document.getElementById("averInstapaper").innerHTML = "{{_('Verify')}}";
-    };
+    }
     function verifyInstapaper() {
         document.getElementById("averInstapaper").innerHTML = "{{_('Verifying')}}";
         var instauser = document.getElementById("instapaper_username").value;
@@ -127,6 +127,6 @@
                 document.getElementById("averInstapaper").innerHTML = "{{_('Verify')}}";
             }
         });
-    };
+    }
 </script>
 {% endblock %}
