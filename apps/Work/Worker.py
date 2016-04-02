@@ -145,6 +145,7 @@ class Worker(BaseHandler):
                         #id, href = oeb.manifest.generate(id='feed', href='feed%d.html'%itemcnt)
                         #item = oeb.manifest.add(id, href, 'application/xhtml+xml', data=content)
                         #oeb.spine.add(item, True)
+                        # main.log.warn("current section in book '%s' is '%s'" % (book.title, sec_or_media))
                         sections.setdefault(sec_or_media, [])
                         sections[sec_or_media].append((title, brief, thumbnail, content))
                         itemcnt += 1

@@ -39,7 +39,7 @@ class Economist(BaseFeedBook):
         ('Indicators', 'http://www.economist.com/rss/indicators_rss.xml'),
         ]
     
-    #下面是在其网站还没有提供RSS前的抓取方式，现在已经不需要了，因为直接有RSS源了
+    #锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷站锟斤拷没锟斤拷锟结供RSS前锟斤拷抓取锟斤拷式锟斤拷锟斤拷锟斤拷锟窖撅拷锟斤拷锟斤拷要锟剿ｏ拷锟斤拷为直锟斤拷锟斤拷RSS源锟斤拷
     """
     feeds = [
             ('Index', 'http://www.economist.com/printedition'),
@@ -59,7 +59,7 @@ class Economist(BaseFeedBook):
         content = result.content.decode(self.feed_encoding)
         soup = BeautifulSoup(content, "lxml")
         
-        #GAE获取到的是移动端网页，和PC获取到的网页有些不一样
+        #GAE锟斤拷取锟斤拷锟斤拷锟斤拷锟狡讹拷锟斤拷锟斤拷页锟斤拷锟斤拷PC锟斤拷取锟斤拷锟斤拷锟斤拷页锟斤拷些锟斤拷一锟斤拷
         for section in soup.find_all('section', attrs={'id':lambda x: x and 'section' in x}):
             h4 = section.find('h4')
             if h4 is None:
@@ -91,7 +91,7 @@ class Economist(BaseFeedBook):
                             urls.append((sectitle,title,url,None))
                             urladded.add(url)
                             
-        #有些人获取到的是PC端网页，怪了，再分析一次PC端网页吧  
+        #锟斤拷些锟剿伙拷取锟斤拷锟斤拷锟斤拷PC锟斤拷锟斤拷页锟斤拷锟斤拷锟剿ｏ拷锟劫凤拷锟斤拷一锟斤拷PC锟斤拷锟斤拷页锟斤拷  
         if len(urls) == 0:
             for section in soup.find_all('div', attrs={'id':lambda x: x and 'section' in x}):
                 h4 = section.find('h4')
