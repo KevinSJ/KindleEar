@@ -4,7 +4,7 @@
 KindleEar电子书基类，每本投递到kindle的书籍抽象为这里的一个类。
 可以继承BaseFeedBook类而实现自己的定制书籍。
 """
-import os, re, urllib, urlparse, imghdr, datetime
+import os, re, urllib, urlparse, imghdr, datetime, hashlib
 from urllib2 import *
 
 from bs4 import BeautifulSoup, Comment, NavigableString, CData, Tag
@@ -14,6 +14,8 @@ from lib.urlopener import URLOpener
 from lib.autodecoder import AutoDecoder
 
 from calibre.utils.img import rescale_image, mobify_image
+from PIL import Image
+from StringIO import StringIO
 
 from config import *
 
@@ -29,6 +31,9 @@ class BaseFeedBook:
     network_timeout       = None  # None则使用默认
     fetch_img_via_ssl     = False # 当网页为https时，其图片是否也转换成https
     language = 'und' #最终书籍的语言定义，比如zh-cn,en等
+
+    extra_header = {}  # 设置请求头包含的额外数据
+    # 例如设置 Accept-Language：extra_header['Accept-Language'] = 'zh-CN,zh;q=0.8,en;q=0.6,ja;q=0.4'
 
     #下面这两个编码建议设置，如果留空，则使用自动探测解码，稍耗费CPU
     feed_encoding = '' # RSS编码，一般为XML格式，直接打开源码看头部就有编码了
@@ -237,7 +242,7 @@ class BaseFeedBook:
             section, url = feed[0], feed[1]
             isfulltext = feed[2] if len(feed) > 2 else False
             timeout = self.timeout+10 if isfulltext else self.timeout
-            opener = URLOpener(self.host, timeout=timeout)
+            opener = URLOpener(self.host, timeout=timeout, headers=self.extra_header)
             result = opener.open(url)
             if result.status_code == 200 and result.content:
                 #debug_mail(result.content, 'feed.xml')
@@ -318,16 +323,20 @@ class BaseFeedBook:
         urls = self.ParseFeedUrls()
         readability = self.readability if self.fulltext_by_readability else self.readability_by_soup
         prevsection = ''
-        opener = URLOpener(self.host, timeout=self.timeout)
+        opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
         decoder = AutoDecoder(False)
         for section, ftitle, url, desc in urls:
             if not desc: #非全文RSS
                 if section != prevsection or prevsection == '':
                     decoder.encoding = '' #每个小节都重新检测编码
                     prevsection = section
-                    opener = URLOpener(self.host, timeout=self.timeout)
+                    opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
                     if self.needs_subscription:
-                        self.login(opener, decoder)
+                        result = self.login(opener, decoder)
+                        # if result:
+                        #    debug_mail(result.content, 'login_result.html')
+                        # else:
+                        #    self.log.warn('func login return none!')                        
         
                 article = self.fetcharticle(url, opener, decoder)
                 if not article:
@@ -450,7 +459,7 @@ class BaseFeedBook:
                         #根据名字或提交地址猜测
                         fname = (f.get('id','') or ''.join(f.get('class',[]))).lower()
                         action = f.get('action','').lower()
-                        if 'login' in identify or 'login' in action:
+                        if ('log' in fname) or ('log' in action):
                             form = f
                             break
                         
@@ -586,7 +595,7 @@ class BaseFeedBook:
         thumbnail = None
 
         if self.keep_image:
-            opener = URLOpener(self.host, timeout=self.timeout)
+            opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
             for img in soup.find_all('img'):
                 #现在使用延迟加载图片技术的网站越来越多了，这里处理一下
                 #注意：如果data-src之类的属性保存的不是真实url就没辙了
@@ -611,25 +620,47 @@ class BaseFeedBook:
                 imgresult = opener.open(imgurl)
                 imgcontent = self.process_image(imgresult.content,opts) if imgresult.status_code==200 else None
                 if imgcontent:
-                    if len(imgcontent) < self.img_min_size: #rexdf too small image
-                        img.decompose()
-                        continue
+                    if isinstance(imgcontent, list):  # 一个图片分隔为多个图片
+                        imgIndex = self.imgindex
+                        lastImg = img
+                        imgPartUrl = imgurl
+                        for idx, imgPartContent in enumerate(imgcontent):
+                            fnImg = "img%d_%d.jpg" % (imgIndex, idx)
+                            if idx == 0:  # 第一个分图
+                                img['src'] = fnImg
+                            else:  # 其他部分
+                                imgPartUrl += '_'
+                                imgNew = soup.new_tag('img', src=fnImg)
+                                lastImg.insert_after(imgNew)
+                                lastImg = imgNew
 
-                    imgtype = imghdr.what(None, imgcontent)
-                    if imgtype:
-                        imgmime = r"image/" + imgtype
-                        fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype=='jpeg' else imgtype)
-                        img['src'] = fnimg
+                            # 使用第一个图片做为目录缩略图
+                            if not has_imgs:
+                                has_imgs = True
+                                thumbnail = imgPartUrl
+                                yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, True)
+                            else:
+                                yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, None)
+                    else:  # 单个图片
+                        if len(imgcontent) < self.img_min_size:  # rexdf too small image
+                            img.decompose()
+                            continue
 
-                        #使用第一个图片做为目录缩略图
-                        if not has_imgs:
-                            has_imgs = True
-                            thumbnail = imgurl
-                            yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                        imgtype = imghdr.what(None, imgcontent)
+                        if imgtype:
+                            imgmime = r"image/" + imgtype
+                            fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype == 'jpeg' else imgtype)
+                            img['src'] = fnimg
+
+                            # 使用第一个图片做为目录缩略图
+                            if not has_imgs:
+                                has_imgs = True
+                                thumbnail = imgurl
+                                yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                            else:
+                                yield (imgmime, imgurl, fnimg, imgcontent, None, None)
                         else:
-                            yield (imgmime, imgurl, fnimg, imgcontent, None, None)
-                    else:
-                        img.decompose()
+                            img.decompose()
                 else:
                     self.log.warn('fetch img failed(%s):%s' % (URLOpener.CodeMap(imgresult.status_code), imgurl))
                     img.decompose()
@@ -741,7 +772,7 @@ class BaseFeedBook:
         thumbnail = None
 
         if self.keep_image:
-            opener = URLOpener(self.host, timeout=self.timeout)
+            opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
             for img in soup.find_all('img'):
                 #现在使用延迟加载图片技术的网站越来越多了，这里处理一下
                 #注意：如果data-src之类的属性保存的不是真实url就没辙了
@@ -766,25 +797,47 @@ class BaseFeedBook:
                 imgresult = opener.open(imgurl)
                 imgcontent = self.process_image(imgresult.content,opts) if imgresult.status_code==200 else None
                 if imgcontent:
-                    if len(imgcontent) < self.img_min_size: #rexdf too small image
-                        img.decompose()
-                        continue
+                    if isinstance(imgcontent, list):  # 一个图片分隔为多个图片
+                        imgIndex = self.imgindex
+                        lastImg = img
+                        imgPartUrl = imgurl
+                        for idx, imgPartContent in enumerate(imgcontent):
+                            fnImg = "img%d_%d.jpg" % (imgIndex, idx)
+                            if idx == 0:  # 第一个分图
+                                img['src'] = fnImg
+                            else:  # 其他部分
+                                imgPartUrl += '_'
+                                imgNew = soup.new_tag('img', src=fnImg)
+                                lastImg.insert_after(imgNew)
+                                lastImg = imgNew
 
-                    imgtype = imghdr.what(None, imgcontent)
-                    if imgtype:
-                        imgmime = r"image/" + imgtype
-                        fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype=='jpeg' else imgtype)
-                        img['src'] = fnimg
+                            # 使用第一个图片做为目录缩略图
+                            if not has_imgs:
+                                has_imgs = True
+                                thumbnail = imgPartUrl
+                                yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, True)
+                            else:
+                                yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, None)
+                    else:  # 单个图片
+                        if len(imgcontent) < self.img_min_size:  # rexdf too small image
+                            img.decompose()
+                            continue
 
-                        #使用第一个图片做为目录缩略图
-                        if not has_imgs:
-                            has_imgs = True
-                            thumbnail = imgurl
-                            yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                        imgtype = imghdr.what(None, imgcontent)
+                        if imgtype:
+                            imgmime = r"image/" + imgtype
+                            fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype == 'jpeg' else imgtype)
+                            img['src'] = fnimg
+
+                            #使用第一个图片做为目录缩略图
+                            if not has_imgs:
+                                has_imgs = True
+                                thumbnail = imgurl
+                                yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                            else:
+                                yield (imgmime, imgurl, fnimg, imgcontent, None, None)
                         else:
-                            yield (imgmime, imgurl, fnimg, imgcontent, None, None)
-                    else:
-                        img.decompose()
+                            img.decompose()
                 else:
                     self.log.warn('fetch img failed(%s):%s' % (URLOpener.CodeMap(imgresult.status_code), imgurl))
                     img.decompose()
@@ -846,7 +899,8 @@ class BaseFeedBook:
         soup = None
 
         yield (title, None, None, content, brief, thumbnail)
-
+    
+    #根据一些配置，对图像进行处理，比如缩小，转灰度图，转格式，图像分隔等
     def process_image(self, data, opts):
         try:
             if not opts or not opts.process_images or not opts.process_images_immediately:
@@ -854,11 +908,55 @@ class BaseFeedBook:
             elif opts.mobi_keep_original_images:
                 return mobify_image(data)
             else:
-                return rescale_image(data, png2jpg=opts.image_png_to_jpg,
-                                graying=opts.graying_image,
+                #如果图被拆分，则返回一个图像列表，否则返回None
+                splitedImages = self.SplitLongImage(data, opts) if THRESHOLD_SPLIT_LONG_IMAGE else None
+                if splitedImages:
+                    images = []
+                    for image in splitedImages:
+                        images.append(rescale_image(image, png2jpg=opts.image_png_to_jpg, graying=opts.graying_image,
+                                                    reduceto=opts.reduce_image_to))
+                    return images
+                else:
+                    return rescale_image(data, png2jpg=opts.image_png_to_jpg,
+                                         graying=opts.graying_image,
                                 reduceto=opts.reduce_image_to)
-        except Exception:
+        except Exception as e:
+            self.log.warn('Process image failed (%s), use original image.' % str(e))
+            return data
+
+    # 如果一个图片太长，则将其分隔成多个图片
+    def SplitLongImage(self, data, opts):
+        if not THRESHOLD_SPLIT_LONG_IMAGE:
             return None
+
+        if not isinstance(data, StringIO):
+            data = StringIO(data)
+        img = Image.open(data)
+        width, height = img.size
+        fmt = img.format
+        # info = img.info
+
+        # 高比宽至少大一倍才认为是长图
+        if height < THRESHOLD_SPLIT_LONG_IMAGE or height < width * 2:
+            return None
+
+        imagesData = []
+        top = 0
+        while top < height:
+            bottom = top + THRESHOLD_SPLIT_LONG_IMAGE
+            if bottom > height:
+                bottom = height
+
+            part = img.crop((0, top, width, bottom))
+            part.load()
+            partData = StringIO()
+            part.save(partData, fmt)  # , **info)
+            imagesData.append(partData.getvalue())
+
+            # 分图和分图重叠20个像素，保证一行字符只能能显示在其中一个分图中
+            top = bottom - 20 if bottom < height else bottom
+
+        return imagesData
 
     def AppendShareLinksToArticle(self, soup, user, url):
         #在文章末尾添加分享链接
@@ -948,7 +1046,9 @@ class BaseFeedBook:
         if sharetype in ('evernote','wiz'):
             href = "%s/share?act=%s&u=%s&url=" % (DOMAIN, sharetype, user.name)
         elif sharetype == 'pocket':
-            href = '%s/share?act=pocket&u=%s&h=%s&t=%s&url=' % (DOMAIN, user.name, (user.pocket_acc_token_hash or ''), soup.html.head.title.string)
+            href = '%s/share?act=pocket&u=%s&h=%s&t=%s&url=' % (
+            DOMAIN, user.name, (hashlib.md5(user.pocket_acc_token_hash or '').hexdigest()),
+            soup.html.head.title.string)
         elif sharetype == 'instapaper':
             href = '%s/share?act=instapaper&u=%s&n=%s&t=%s&url=' % (DOMAIN, user.name, user.instapaper_username or '', soup.html.head.title.string)
         elif sharetype == 'xweibo':
@@ -989,13 +1089,13 @@ class WebpageBook(BaseFeedBook):
         decoder = AutoDecoder(False)
         timeout = self.timeout
         for section, url in self.feeds:
-            opener = URLOpener(self.host, timeout=timeout)
+            opener = URLOpener(self.host, timeout=timeout, headers=self.extra_header)
             result = opener.open(url)
             status_code, content = result.status_code, result.content
             if status_code != 200 or not content:
                 self.log.warn('fetch article failed(%s):%s.' % (URLOpener.CodeMap(status_code), url))
                 continue
-
+            
             if self.page_encoding:
                 try:
                     content = content.decode(self.page_encoding)
@@ -1104,25 +1204,47 @@ class WebpageBook(BaseFeedBook):
                     imgresult = opener.open(imgurl)
                     imgcontent = self.process_image(imgresult.content,opts) if imgresult.status_code==200 else None
                     if imgcontent:
-                        if len(imgcontent) < self.img_min_size: #rexdf too small image
-                            img.decompose()
-                            continue
+                        if isinstance(imgcontent, list):  # 一个图片分隔为多个图片
+                            imgIndex = self.imgindex
+                            lastImg = img
+                            imgPartUrl = imgurl
+                            for idx, imgPartContent in enumerate(imgcontent):
+                                fnImg = "img%d_%d.jpg" % (imgIndex, idx)
+                                if idx == 0:  # 第一个分图
+                                    img['src'] = fnImg
+                                else:  # 其他部分
+                                    imgPartUrl += '_'
+                                    imgNew = soup.new_tag('img', src=fnImg)
+                                    lastImg.insert_after(imgNew)
+                                    lastImg = imgNew
 
-                        imgtype = imghdr.what(None, imgcontent)
-                        if imgtype:
-                            imgmime = r"image/" + imgtype
-                            fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype=='jpeg' else imgtype)
-                            img['src'] = fnimg
+                                # 使用第一个图片做为目录缩略图
+                                if not has_imgs:
+                                    has_imgs = True
+                                    thumbnail = imgPartUrl
+                                    yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, True)
+                                else:
+                                    yield ('image/jpeg', imgPartUrl, fnImg, imgPartContent, None, None)
+                        else:  # 单个图片
+                            if len(imgcontent) < self.img_min_size:  # rexdf too small image
+                                img.decompose()
+                                continue
 
-                            #使用第一个图片做为目录摘要图
-                            if not has_imgs:
-                                has_imgs = True
-                                thumbnail = imgurl
-                                yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                            imgtype = imghdr.what(None, imgcontent)
+                            if imgtype:
+                                imgmime = r"image/" + imgtype
+                                fnimg = "img%d.%s" % (self.imgindex, 'jpg' if imgtype == 'jpeg' else imgtype)
+                                img['src'] = fnimg
+
+                                # 使用第一个图片做为目录摘要图
+                                if not has_imgs:
+                                    has_imgs = True
+                                    thumbnail = imgurl
+                                    yield (imgmime, imgurl, fnimg, imgcontent, None, True)
+                                else:
+                                    yield (imgmime, imgurl, fnimg, imgcontent, None, None)
                             else:
-                                yield (imgmime, imgurl, fnimg, imgcontent, None, None)
-                        else:
-                            img.decompose()
+                                img.decompose()
                     else:
                         self.log.warn('fetch img failed(%s):%s' % (URLOpener.CodeMap(imgresult.status_code), imgurl))
                         img.decompose()
@@ -1139,7 +1261,7 @@ class WebpageBook(BaseFeedBook):
 
             self.soupprocessex(soup)
             content = unicode(soup)
-
+            
             #提取文章内容的前面一部分做为摘要
             brief = u''
             if GENERATE_TOC_DESC:
@@ -1177,7 +1299,7 @@ def remove_beyond(tag, next):
         tag = tag.parent
 
 def string_of_tag(tag, normalize_whitespace=False):
-    """ 获取BeautifulSoup中的一个tag下面的所有字符串 """
+    #获取BeautifulSoup中的一个tag下面的所有字符串
     if not tag:
         return ''
     if isinstance(tag, basestring):
@@ -1196,8 +1318,8 @@ def string_of_tag(tag, normalize_whitespace=False):
     return ans
 
 def debug_mail(content, name='page.html'):
-    "将抓取的网页发到自己邮箱进行调试"
+    #将抓取的网页发到自己邮箱进行调试
     from google.appengine.api import mail
     mail.send_mail(SRC_EMAIL, SRC_EMAIL, "KindleEar Debug", "KindlerEar",
-    attachments=[(name, content),])
+                   attachments=[(name, content),])
     

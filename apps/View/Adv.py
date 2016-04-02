@@ -165,6 +165,10 @@ class AdvImport(BaseHandler):
                 title, url, isfulltext = o.text, urllib.unquote_plus(o.xmlUrl), o.isFulltext #isFulltext为非标准属性
                 isfulltext = bool(isfulltext.lower() in ('true', '1'))
                 if title and url:
+                    try:
+                        url = url.decode('utf-8')
+                    except:
+                        pass
                     rss = Feed.all().filter('book = ', user.ownfeeds).filter("url = ", url).get() #查询是否有重复的
                     if rss:
                         rss.title = title
@@ -217,8 +221,8 @@ class AdvExport(BaseHandler):
             date += '+%02d00' % user.timezone if user.timezone > 0 else '-%02d00' % abs(user.timezone)
         outlines = []
         for feed in Feed.all().filter('book = ', user.ownfeeds):
-            outlines.append('    <outline type="rss" text="%s" xmlUrl="%s" isFulltext="%d" />' % 
-                (feed.title, urllib.quote_plus(feed.url.encode('utf8')), feed.isfulltext))
+            outlines.append('    <outline type="rss" text="%s" xmlUrl="%s" isFulltext="%d" />' %
+                            (feed.title, urllib.quote_plus(feed.url.encode('utf-8')), feed.isfulltext))
         outlines = '\n'.join(outlines)
         
         opmlfile = opmlTpl % (date, date, outlines)
