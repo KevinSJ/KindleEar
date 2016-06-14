@@ -14,7 +14,7 @@ class CodingHorror(BaseFeedBook):
     language = 'en'
     feed_encoding = "utf-8"
     page_encoding = "utf-8"
-    oldest_article = 0
+    oldest_article = 2
     keep_image = True
     fulltext_by_readability = False
 

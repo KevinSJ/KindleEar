@@ -16,6 +16,9 @@ class DZone(BaseFeedBook):
     page_encoding = "utf-8"
     keep_image = True
     fulltext_by_readability = True
+    oldest_article = 2
+
+    remove_classes = ["article-bumper"]
 
     feeds = [
         ('DZone Java Zone', 'http://feeds.dzone.com/java?format=xml'),
