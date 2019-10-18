@@ -107,7 +107,7 @@ class SharedLibraryCategory(BaseHandler):
 #             以下函数仅为 kindleear.appspot.com 使用
 #===========================================================================================================
 
-#共享库订阅源数据(仅用于kindleear.appspot.com"官方"共享服务器)
+#网友共享的订阅源数据(仅用于kindleear.appspot.com"官方"共享服务器)
 class SharedLibrarykindleearAppspotCom(BaseHandler):
     __url__ = "/kindleearappspotlibrary"
 
@@ -123,11 +123,10 @@ class SharedLibrarykindleearAppspotCom(BaseHandler):
 
         #本来想在服务器端分页的，但是好像CPU/数据库存取资源比带宽资源更紧张，所以干脆一次性提供给客户端，由客户端分页和分类
         #如果后续发现这样不理想，也可以考虑修改为服务器端分页
-        #qry = SharedRss.all().order('-subscribed').order('-created_time').fetch(limit=10000)
+        qry = SharedRss.all().order('-subscribed').order('-created_time').fetch(limit=10000)
         shared_data = []
-        for d in SharedRss.all().fetch(limit=10000):
-            shared_data.append({'t':d.title, 'u':d.url, 'f':d.isfulltext, 'c':d.category, 's':d.subscribed, 
-                'd':int((d.created_time - datetime.datetime(1970, 1, 1)).total_seconds())})
+        for d in qry:
+            shared_data.append({'title':d.title, 'url':d.url, 'isfulltext':d.isfulltext, 'category':d.category})
         return json.dumps(shared_data)
         
     #网友分享了一个订阅链接
@@ -200,7 +199,6 @@ class SharedLibrarykindleearAppspotCom(BaseHandler):
 
         return json.dumps(respDict)
 
-#共享库的订阅源信息管理
 class SharedLibraryMgrkindleearAppspotCom(BaseHandler):
     __url__ = "/kindleearappspotlibrary/mgr/(.*)"
     
@@ -278,7 +276,7 @@ class SharedLibraryMgrkindleearAppspotCom(BaseHandler):
         else:
             return json.dumps({'status': 'unknown command: %s' % mgrType})
 
-#共享库的订阅源数据分类信息(仅用于kindleear.appspot.com"官方"共享服务器)
+#网友共享的订阅源数据分类信息(仅用于kindleear.appspot.com"官方"共享服务器)
 class SharedLibraryCategorykindleearAppspotCom(BaseHandler):
     __url__ = "/kindleearappspotlibrarycategory"
     

@@ -63,14 +63,7 @@ class MySubscription(BaseHandler):
         
         if not url.lower().startswith('http'): #http and https
             url = 'http://' + url
-            
         assert user.ownfeeds
-        
-        #判断是否重复
-        ownUrls = [item.url for item in user.ownfeeds.feeds]
-        if url in ownUrls:
-            return self.GET(_("Duplicated subscription!"))
-            
         Feed(title=title, url=url, book=user.ownfeeds, isfulltext=isfulltext,
             time=datetime.datetime.utcnow()).put()
         memcache.delete('%d.feedscount' % user.ownfeeds.key().id())
@@ -114,8 +107,7 @@ class FeedsAjax(BaseHandler):
                 respDict['url'] = url
             
             #判断是否重复
-            ownUrls = [item.url for item in user.ownfeeds.feeds]
-            if url in ownUrls:
+            if Feed.all().filter('url = ', url).get():
                 respDict['status'] = _("Duplicated subscription!")
                 return json.dumps(respDict)
 
