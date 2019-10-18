@@ -1,9 +1,5 @@
 # Changelog for KindleEar
 
-
-## 1.26.4
-  1. bugfix: failed to push comic book, bug from 1.26.2.
-
 ## 1.26.3
   1. Do not add namespace in custom stylesheet.
 

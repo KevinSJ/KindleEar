@@ -15,9 +15,8 @@ for comicFile in os.listdir(os.path.dirname(__file__)):
         try:
             moduleComic = __import__('books.comic.' + comicName, fromlist='*')
             memberList = [getattr(moduleComic, member) for member in dir(moduleComic) if not member.startswith('_')]
-            typeofBase = type(BaseComicBook)
             for member in memberList:
-                if type(member) == typeofBase and issubclass(member, BaseComicBook) and (member is not BaseComicBook):
+                if issubclass(member, BaseComicBook) and (member is not BaseComicBook):
                     ComicBaseClasses.append(member)
         except Exception as e:
             default_log.warn("Comic base book '%s' import failed : %s" % (comicName, e))

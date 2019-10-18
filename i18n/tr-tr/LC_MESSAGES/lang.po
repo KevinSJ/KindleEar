@@ -785,6 +785,3 @@ msgstr "Failed to upload the stylesheet file. Error:"
 
 msgid "Failed to delete the stylesheet. Error:"
 msgstr "Failed to delete the stylesheet. Error:"
-
-msgid "Forgot password?"
-msgstr "Forgot password?"
