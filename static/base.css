@@ -301,7 +301,7 @@ a {
     text-decoration: none;
     color: #fff;
     border: 2px solid #fff;
-    border-radius: 2em;
+    border-radius: 0.5em;
 }
 
 #bookmarklet .box .actionButton {
