@@ -21,17 +21,7 @@ from StringIO import StringIO
 
 from config import *
 
-htmlTemplate = """
-<html>
-<head>
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-<title>%s</title>
-</head>
-<body><img src="%s"/></body>
-</html>""".strip()
-
-
-# base class of Book
+#base class of Book
 class BaseFeedBook:
     title                 = ''
     __author__            = ''
@@ -1381,14 +1371,15 @@ class BaseComicBook(BaseFeedBook):
     feeds = []  # 子类填充此列表[('name', mainurl),...]
     min_image_size = (150, 150)  # 小于这个尺寸的图片会被删除，用于去除广告图片或按钮图片之类的
 
-    # 子类必须实现此函数，返回 [(bookname, chapter_title, imgList, next_chapter_index),..]
+    # 子类必须实现此函数，返回 [(section, title, url, desc),..]
+    # 每个URL直接为图片地址，或包含一个或几个漫画图片的网页地址
     def ParseFeedUrls(self):
-        chapters = []  # 用于返回
+        urls = []  # 用于返回
 
         username = self.UserName()
         for item in self.feeds:
             bookname, url = item[0], item[1]
-            self.log.info(u"Parsing Feed {} for {}".format(url, bookname))
+            self.log.debug(u"Parsing Feed {} for {}".format(url, bookname))
 
             last_deliver = (
                 LastDelivered.all()
@@ -1406,10 +1397,11 @@ class BaseComicBook(BaseFeedBook):
             else:
                 next_chapter_index = last_deliver.num
 
-            chapter_list = self.getChapterList(url)
-            chapter_length = len(chapter_list)
-            if next_chapter_index < chapter_length:
-                chapter_title, chapter_url = chapter_list[next_chapter_index]
+            chapterList = self.getChapterList(url)
+
+            page_count = 0
+            if next_chapter_index < len(chapterList):
+                chapter_title, chapter_url = chapterList[next_chapter_index]
                 self.log.info(u"Add {}: {}".format(chapter_title, chapter_url))
                 imgList = self.getImgList(chapter_url)
                 if not imgList:
@@ -1417,15 +1409,19 @@ class BaseComicBook(BaseFeedBook):
                         "can not found image list: %s" % chapter_url
                     )
                     break
-                next_chapter_index += 1
-                chapters.append((bookname, chapter_title, imgList, next_chapter_index))
+                for img in imgList:
+                    page_count += 1
+                    urls.append((chapter_title, "{}".format(page_count), img, None))
+                    self.log.info("comicSrc: %s" % img)
+
+                self.UpdateLastDelivered(bookname, chapter_title, next_chapter_index + 1)
             else:
                 self.log.info(
                     u"No new chapter for {} ( total {}, pushed {} )".format(
                         bookname, len(chapterList), next_chapter_index
                     )
                 )
-        return chapters
+        return urls
 
     #获取漫画章节列表
     def getChapterList(self, url):
@@ -1437,16 +1433,25 @@ class BaseComicBook(BaseFeedBook):
     
     #获取漫画图片内容
     def adjustImgContent(self, content):
-        return content
-
-    # 生成器，返回一个图片元组，mime,url,filename,content,brief,thumbnail
-    def gen_image_items(self, img_list):
+        return content 
+    
+    #生成器，返回一个图片元组，mime,url,filename,content,brief,thumbnail
+    def Items(self):
+        urls = self.ParseFeedUrls()
         opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
         decoder = AutoDecoder(isfeed=False)
-        min_width, min_height = self.min_image_size
-        if self.needs_subscription:
-            result = self.login(opener, decoder)
-        for i, url in enumerate(img_list):
+        prevSection = ''
+        min_width, min_height = self.min_image_size if self.min_image_size else (0, 0)
+        htmlTemplate = '<html><head><meta http-equiv="Content-Type" content="text/html;charset=utf-8"><title>%s</title></head><body><img src="%s"/></body></html>'
+        
+        for section, fTitle, url, desc in urls:
+            if section != prevSection or prevSection == '':
+                decoder.encoding = '' #每个小节都重新检测编码[当然是在抓取的是网页的情况下才需要]
+                prevSection = section
+                opener = URLOpener(self.host, timeout=self.timeout, headers=self.extra_header)
+                if self.needs_subscription:
+                    result = self.login(opener, decoder)
+
             result = opener.open(url)
             content = result.content
             if not content:
@@ -1454,7 +1459,13 @@ class BaseComicBook(BaseFeedBook):
                     "Failed to download %s: code %s" % url, result.status_code
                 )
 
-            content = self.adjustImgContent(content)
+            content = self.adjustImgContent(content);
+            if content == None:
+                self.log.warn("Image adjust error, try again: {}".format(url.encode('utf-8')))
+                content = self.adjustImgContent(content);
+                if content == None:
+                    self.log.warn("Image adjust error: {}".format(url.encode('utf-8')))
+                    continue
 
             imgFilenameList = []
 
@@ -1557,20 +1568,8 @@ class BaseComicBook(BaseFeedBook):
             
             #每个图片当做一篇文章，否则全屏模式下图片会挤到同一页
             for imgFilename in imgFilenameList:
-                tmpHtml = htmlTemplate % (i, imgFilename)
-                yield (imgFilename.split(".")[0], url, str(i), tmpHtml, "", None)
-
-    def Items(self):
-        # todo: update last-delivered after send to kindle for built-in
-        for (
-            bookname,
-            chapter_title,
-            img_list,
-            next_chapter_index,
-        ) in self.ParseFeedUrls():
-            for item in self.gen_image_items(img_list):
-                yield item
-            self.UpdateLastDelivered(bookname, chapter_title, next_chapter_index)
+                tmpHtml = htmlTemplate % (fTitle, imgFilename)
+                yield (imgFilename.split('.')[0], url, fTitle, tmpHtml, '', None)
 
     # 更新已经推送的序号和标题到数据库
     def UpdateLastDelivered(self, bookname, chapter_title, num):
