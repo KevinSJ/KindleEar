@@ -16,7 +16,7 @@ import random
 from collections import OrderedDict
 from apps.BaseHandler import BaseHandler
 from apps.dbModels import *
-from apps.utils import local_time, get_exc_location
+from apps.utils import InsertToc, local_time, get_exc_location
 from lib.makeoeb import *
 from calibre.ebooks.conversion.mobioutput import MOBIOutput
 from calibre.ebooks.conversion.epuboutput import EPUBOutput
@@ -186,7 +186,6 @@ class Worker(BaseHandler):
             # 对于html文件，变量名字自文档,thumbnail为文章第一个img的url
             # 对于图片文件，section为图片mime,url为原始链接,title为文件名,content为二进制内容,
             #    img的thumbail仅当其为article的第一个img为True
-            # 对于CSS文件，sec_or_media 为 'text/css'，url 和 title 都为文件名
             try: #书的质量可能不一，一本书的异常不能影响其他书籍的推送
                 for sec_or_media, url, title, content, brief, thumbnail in book.Items():
                     if not sec_or_media or not title or not content:
@@ -198,9 +197,6 @@ class Worker(BaseHandler):
                         if thumbnail:
                             toc_thumbnails[url] = href
                         imgindex += 1
-                    elif sec_or_media == 'text/css':
-                        if url not in oeb.manifest.hrefs: #Only one css needed
-                            oeb.manifest.add('css', url, sec_or_media, data=content)
                     else:
                         #id, href = oeb.manifest.generate(id='feed', href='feed%d.html'%itemcnt)
                         #item = oeb.manifest.add(id, href, 'application/xhtml+xml', data=content)
@@ -208,8 +204,8 @@ class Worker(BaseHandler):
                         sections.setdefault(sec_or_media, [])
                         sections[sec_or_media].append((title, brief, thumbnail, content))
                         itemcnt += 1
-            except Exception as e:
-                main.log.exception(u"Failed to push <%s>, Err:%s" % (book.title, str(e)))
+            except:
+                main.log.exception(u"Failed to push <%s>" % book.title)
                 continue
         
         volumeTitle = ''
@@ -476,9 +472,9 @@ class Worker(BaseHandler):
 
     def ProcessComicRSS(self, username, user, feed):
         opts = getOpts(user.device, "comic")
-        for comicClass in ComicBaseClasses:
+        for ComicBaseClass in ComicBaseClasses:
             if feed.url.startswith(ComicBaseClass.accept_domains):
-                book = comicClass(opts=opts, user=user)
+                book = ComicBaseClass(opts=opts, user=user)
                 break
         else:
             msg = u"No base class for {}".format(feed.title)
