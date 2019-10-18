@@ -59,7 +59,7 @@ class TencentBaseBook(BaseComicBook):
                 self.log.info("Chapter {} is Vip, waiting for free.".format(href))
                 continue
 
-            chapterList.append((item.get_text(), href))
+            chapterList.append(href)
 
         return chapterList
 

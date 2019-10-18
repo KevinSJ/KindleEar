@@ -41,8 +41,8 @@ class CartoonMadBaseBook(BaseComicBook):
                 return chapterList
 
             for volume in comicVolumes:
-                href = self.urljoin(self.host, volume.get("href"))
-                chapterList.append((unicode(volume.string), href))
+                href = self.urljoin(self.host, volume.get('href'))
+                chapterList.append(href)
 
         return chapterList
 
