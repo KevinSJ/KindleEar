@@ -23,9 +23,13 @@ from calibre.ebooks.conversion.epuboutput import EPUBOutput
 from calibre.utils.bytestringio import byteStringIO
 from books import BookClasses, BookClass
 from books.base import BaseFeedBook, BaseComicBook
-from books.comic import ComicBaseClasses, comic_domains
-
-# 实际下载文章和生成电子书并且发送邮件
+from books.comic.cartoonmadbase import CartoonMadBaseBook
+from books.comic.tencentbase import TencentBaseBook
+from books.comic.manhuaguibase import ManHuaGuiBaseBook
+from books.comic.seven33sobase import Seven33SoBaseBook
+from books.comic.tohomhbase import ToHoMHBaseBook
+    
+#实际下载文章和生成电子书并且发送邮件
 class Worker(BaseHandler):
     __url__ = "/worker"
     def GET(self):
@@ -52,11 +56,10 @@ class Worker(BaseHandler):
             try:
                 bks.append(Book.get_by_id(int(id_)))
             except:
-                main.log.warn("Can't find book {}".format(id_))
                 continue
                 #return "id of book is invalid or book not exist!<br />"
         
-        # Deliver only some feeds in custom rss
+        #Deliver only some feeds in custom rss
         if feedsId:
             feedsId = [int(item) for item in feedsId.split('|') if item.isdigit()]
             feedsId = [Feed.get_by_id(item) for item in feedsId if Feed.get_by_id(item)]
@@ -121,12 +124,10 @@ class Worker(BaseHandler):
                         if imgType: #如果是合法图片
                             imgMime = r"image/" + imgType
                         else:
-                            main.log.warn(u'content of cover is invalid : [%s].' % bookTitle)
+                            main.log.warn('content of cover is invalid : [%s].' % bookTitle)
                             imgData = None
-                except:
-                    main.log.exception(
-                        u"Failed to fetch cover for book [%s]" % bookTitle
-                    )
+                except Exception as e:
+                    main.log.warn('Failed to fetch cover for book [%s]. [Error: %s]' % (bookTitle, str(e)))
                     coverfile = DEFAULT_COVER
                     imgData = None
                     imgMime = ''
@@ -177,7 +178,13 @@ class Worker(BaseHandler):
                 feeds = feedsId if feedsId else bk.feeds
                 book.feeds = []
                 for feed in feeds:
-                    if feed.url.startswith(comic_domains):
+                    if feed.url.startswith((
+                        "http://www.cartoonmad.com", "https://www.cartoonmad.com",
+                        "http://ac.qq.com", "http://m.ac.qq.com",
+                        "https://www.manhuagui.com", "https://m.manhuagui.com",
+                        "https://www.733.so", "https://m.733.so",
+                        "https://www.tohomh123.com", "https://m.tohomh123.com"
+                    )) :
                         self.ProcessComicRSS(username, user, feed)
                     else:
                         book.feeds.append((feed.title, feed.url, feed.isfulltext))
@@ -204,8 +211,10 @@ class Worker(BaseHandler):
                         sections.setdefault(sec_or_media, [])
                         sections[sec_or_media].append((title, brief, thumbnail, content))
                         itemcnt += 1
-            except:
-                main.log.exception("Failed to push <%s>" % book.title)
+            except Exception as e:
+                excFileName, excFuncName, excLineNo = get_exc_location()
+                main.log.warn("Failed to push <%s> : %s, in file '%s', %s (line %d)" % (
+                    book.title, str(e), excFileName, excFuncName, excLineNo))
                 continue
         
         volumeTitle = ''
@@ -377,12 +386,18 @@ class Worker(BaseHandler):
         sections = OrderedDict()
         toc_thumbnails = {} #map img-url -> manifest-href
 
-        for ComicBaseClass in ComicBaseClasses:
-            if feed.url.startswith(ComicBaseClass.accept_domains):
-                book = ComicBaseClass(imgindex=imgindex, opts=opts, user=user)
-                break
+        if feed.url.startswith( ("http://ac.qq.com", "http://m.ac.qq.com") ):
+            book = TencentBaseBook(imgindex=imgindex, opts=opts, user=user)
+        elif feed.url.startswith( ("http://www.cartoonmad.com", "https://www.cartoonmad.com") ):
+            book = CartoonMadBaseBook(imgindex=imgindex, opts=opts, user=user)
+        elif feed.url.startswith( ("https://www.manhuagui.com", "https://m.manhuagui.com") ):
+            book = ManHuaGuiBaseBook(imgindex=imgindex, opts=opts, user=user)
+        elif feed.url.startswith( ("https://www.733.so", "https://m.733.so") ):
+            book = Seven33SoBaseBook(imgindex=imgindex, opts=opts, user=user)
+        elif feed.url.startswith( ("https://www.tohomh123.com", "https://m.tohomh123.com") ):
+            book = ToHoMHBaseBook(imgindex=imgindex, opts=opts, user=user)
         else:
-            raise Exception("No base class for {}".format(feed.title))
+            return "Failed to push book <%s>!"%feed.title
 
         book.title = feed.title
         book.description = feed.title
@@ -411,9 +426,11 @@ class Worker(BaseHandler):
                     sections.setdefault(sec_or_media, [])
                     sections[sec_or_media].append((title, brief, thumbnail, content))
                     itemcnt += 1
-        except:
-            main.log.exception("Failed to push <%s>" % book.title)
-            return "Failed to push book <%s>!" % title
+        except Exception as e:
+            excFileName, excFuncName, excLineNo = get_exc_location()
+            main.log.warn("Failed to push <%s> : %s, in file '%s', %s (line %d)" % (
+                book.title, str(e), excFileName, excFuncName, excLineNo))
+            return "Failed to push book <%s>!"%title
 
         volumeTitle = ''
         if itemcnt > 0:
